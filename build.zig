@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) !void {
     );
     lib.addConfigHeader(config_h);
     lib.addIncludePath(assimp.path("include"));
-    lib.addIncludePath(.{ .path = "include" });
+    lib.addIncludePath(b.path("include"));
 
     lib.addIncludePath(assimp.path(""));
     lib.addIncludePath(assimp.path("contrib"));
@@ -38,28 +38,19 @@ pub fn build(b: *std.Build) !void {
 
     lib.defineCMacro("RAPIDJSON_HAS_STDSTRING", "1");
 
-    lib.installConfigHeader(config_h, .{});
-    lib.installHeadersDirectoryOptions(.{
-        .source_dir = assimp.path("include"),
-        .install_subdir = "",
-        .install_dir = .header,
-    });
-
-    lib.installHeadersDirectoryOptions(.{
-        .source_dir = .{ .path = "include" },
-        .install_subdir = "",
-        .install_dir = .header,
-    });
+    lib.installConfigHeader(config_h);
+    lib.installHeadersDirectory(assimp.path("include"), "", .{ .include_extensions = null });
+    lib.installHeadersDirectory(b.path("include"), "", .{});
 
     lib.addCSourceFiles(.{
-        .dependency = assimp,
+        .root = assimp.path(""),
         .files = &sources.common,
         .flags = &.{},
     });
 
     inline for (comptime std.meta.declarations(sources.libraries)) |ext_lib| {
         lib.addCSourceFiles(.{
-            .dependency = assimp,
+            .root = assimp.path(""),
             .files = &@field(sources.libraries, ext_lib.name),
             .flags = &.{},
         });
@@ -97,7 +88,7 @@ pub fn build(b: *std.Build) !void {
 
         if (enabled) {
             lib.addCSourceFiles(.{
-                .dependency = assimp,
+                .root = assimp.path(""),
                 .files = &@field(sources.formats, format_files.name),
                 .flags = &.{},
             });
@@ -126,7 +117,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     example_cpp.addCSourceFile(.{
-        .file = .{ .path = "src/example.cpp" },
+        .file = b.path("src/example.cpp"),
         .flags = &[_][]const u8{"-std=c++17"},
     });
     example_cpp.linkLibrary(lib);
@@ -140,7 +131,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     example_c.addCSourceFile(.{
-        .file = .{ .path = "src/example.c" },
+        .file = b.path("src/example.c"),
         .flags = &[_][]const u8{"-std=c99"},
     });
     example_c.linkLibrary(lib);
