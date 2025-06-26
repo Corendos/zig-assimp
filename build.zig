@@ -7,15 +7,12 @@ pub fn build(b: *std.Build) !void {
     const use_double_precision = b.option(bool, "double", "All data will be stored as double values") orelse false;
     const assimp = b.dependency("assimp", .{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "assimp",
-        .optimize = optimize,
+    const assimp_mod = b.createModule(.{
         .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .link_libcpp = true,
     });
-
-    lib.linkLibC();
-    lib.linkLibCpp();
-
     const config_h = b.addConfigHeader(
         .{
             .style = .{ .cmake = assimp.path("include/assimp/config.h.in") },
@@ -23,33 +20,28 @@ pub fn build(b: *std.Build) !void {
         },
         .{ .ASSIMP_DOUBLE_PRECISION = use_double_precision },
     );
-    lib.addConfigHeader(config_h);
-    lib.addIncludePath(assimp.path("include"));
-    lib.addIncludePath(b.path("include"));
+    assimp_mod.addConfigHeader(config_h);
+    assimp_mod.addIncludePath(assimp.path("include"));
+    assimp_mod.addIncludePath(b.path("include"));
+    assimp_mod.addIncludePath(assimp.path(""));
+    assimp_mod.addIncludePath(assimp.path("contrib"));
+    assimp_mod.addIncludePath(assimp.path("code"));
+    assimp_mod.addIncludePath(assimp.path("contrib/pugixml/src/"));
+    assimp_mod.addIncludePath(assimp.path("contrib/rapidjson/include"));
+    assimp_mod.addIncludePath(assimp.path("contrib/unzip"));
+    assimp_mod.addIncludePath(assimp.path("contrib/zlib"));
+    assimp_mod.addIncludePath(assimp.path("contrib/openddlparser/include"));
 
-    lib.addIncludePath(assimp.path(""));
-    lib.addIncludePath(assimp.path("contrib"));
-    lib.addIncludePath(assimp.path("code"));
-    lib.addIncludePath(assimp.path("contrib/pugixml/src/"));
-    lib.addIncludePath(assimp.path("contrib/rapidjson/include"));
-    lib.addIncludePath(assimp.path("contrib/unzip"));
-    lib.addIncludePath(assimp.path("contrib/zlib"));
-    lib.addIncludePath(assimp.path("contrib/openddlparser/include"));
+    assimp_mod.addCMacro("RAPIDJSON_HAS_STDSTRING", "1");
 
-    lib.defineCMacro("RAPIDJSON_HAS_STDSTRING", "1");
-
-    lib.installConfigHeader(config_h);
-    lib.installHeadersDirectory(assimp.path("include"), "", .{ .include_extensions = null });
-    lib.installHeadersDirectory(b.path("include"), "", .{});
-
-    lib.addCSourceFiles(.{
+    assimp_mod.addCSourceFiles(.{
         .root = assimp.path(""),
         .files = &sources.common,
         .flags = &.{},
     });
 
     inline for (comptime std.meta.declarations(sources.libraries)) |ext_lib| {
-        lib.addCSourceFiles(.{
+        assimp_mod.addCSourceFiles(.{
             .root = assimp.path(""),
             .files = &@field(sources.libraries, ext_lib.name),
             .flags = &.{},
@@ -59,7 +51,7 @@ pub fn build(b: *std.Build) !void {
     var enable_all = false;
     var enabled_formats = std.BufSet.init(b.allocator);
     defer enabled_formats.deinit();
-    var tokenizer = std.mem.tokenize(u8, formats, ",");
+    var tokenizer = std.mem.tokenizeScalar(u8, formats, ',');
     while (tokenizer.next()) |format| {
         if (std.mem.eql(u8, format, "all")) {
             enable_all = true;
@@ -87,7 +79,7 @@ pub fn build(b: *std.Build) !void {
         const enabled = enable_all or enabled_formats.contains(format_files.name);
 
         if (enabled) {
-            lib.addCSourceFiles(.{
+            assimp_mod.addCSourceFiles(.{
                 .root = assimp.path(""),
                 .files = &@field(sources.formats, format_files.name),
                 .flags = &.{},
@@ -96,8 +88,8 @@ pub fn build(b: *std.Build) !void {
             const define_importer = b.fmt("ASSIMP_BUILD_NO_{}_IMPORTER", .{fmtUpperCase(format_files.name)});
             const define_exporter = b.fmt("ASSIMP_BUILD_NO_{}_EXPORTER", .{fmtUpperCase(format_files.name)});
 
-            lib.defineCMacro(define_importer, null);
-            lib.defineCMacro(define_exporter, null);
+            assimp_mod.addCMacro(define_importer, "");
+            assimp_mod.addCMacro(define_exporter, "");
         }
     }
 
@@ -105,37 +97,57 @@ pub fn build(b: *std.Build) !void {
         const define_importer = b.fmt("ASSIMP_BUILD_NO_{}_IMPORTER", .{fmtUpperCase(unsupported_format)});
         const define_exporter = b.fmt("ASSIMP_BUILD_NO_{}_EXPORTER", .{fmtUpperCase(unsupported_format)});
 
-        lib.defineCMacro(define_importer, null);
-        lib.defineCMacro(define_exporter, null);
+        assimp_mod.addCMacro(define_importer, "");
+        assimp_mod.addCMacro(define_exporter, "");
     }
+
+    const lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "assimp",
+        .root_module = assimp_mod,
+    });
+    lib.step.dependOn(&config_h.step);
+
+    lib.installHeadersDirectory(assimp.path("include"), "", .{ .include_extensions = null });
+    lib.installHeadersDirectory(b.path("include"), "", .{});
 
     b.installArtifact(lib);
 
-    const example_cpp = b.addExecutable(.{
-        .name = "static-example-cpp",
+    const static_example_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
     });
-    example_cpp.addCSourceFile(.{
+    static_example_mod.addConfigHeader(config_h);
+    static_example_mod.addCSourceFile(.{
         .file = b.path("src/example.cpp"),
         .flags = &[_][]const u8{"-std=c++17"},
     });
-    example_cpp.linkLibrary(lib);
-    example_cpp.linkLibC();
-    example_cpp.linkLibCpp();
+    static_example_mod.linkLibrary(lib);
+    //static_example_mod.linkLibC();
+    //static_example_mod.linkLibCpp();
+
+    const example_cpp = b.addExecutable(.{
+        .name = "static-example-cpp",
+        .root_module = static_example_mod,
+    });
     b.installArtifact(example_cpp);
 
-    const example_c = b.addExecutable(.{
-        .name = "static-example-c",
+    const example_c_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
     });
-    example_c.addCSourceFile(.{
+    example_c_mod.addConfigHeader(config_h);
+    example_c_mod.addCSourceFile(.{
         .file = b.path("src/example.c"),
         .flags = &[_][]const u8{"-std=c99"},
     });
-    example_c.linkLibrary(lib);
-    example_c.linkLibC();
+    example_c_mod.linkLibrary(lib);
+    //example_c_mod.linkLibC();
+
+    const example_c = b.addExecutable(.{
+        .name = "static-example-c",
+        .root_module = example_c_mod,
+    });
     b.installArtifact(example_c);
 }
 

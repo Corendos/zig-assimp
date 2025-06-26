@@ -1,10 +1,11 @@
 .{
-    .name = "zig-assimp",
+    .name = .zig_assimp,
+    .fingerprint = 0x3e92a7cfdab97195,
     .version = "5.3.1",
     .paths = .{
         "build.zig",
         "build.zig.zon",
-        "LICECE",
+        "LICENCE",
         "README.md",
         "include",
         "src",
